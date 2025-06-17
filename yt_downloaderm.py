@@ -103,10 +103,33 @@ def search_resolution_func(video_link, is_playlist_var, video_resolution, logo_l
             except:
                 showerror(title='Error', message='An error occurred while searching for video resolutions!')
 
+def get_best_audio_stream(video):
+    """
+    先找 256 kbps AAC(itag 141)；若沒有就找 160 kbps Opus(itag 251)；
+    都沒有再 fallback 到 abr 最高的音訊串流
+    """
+    stream = video.streams.get_by_itag(141)        # 256 kbps AAC
+    if stream:
+        return stream
+    stream = video.streams.get_by_itag(251)        # 160 kbps Opus
+    if stream:
+        return stream
+    # 仍找不到就抓 abr 最大的那條
+    return (video.streams
+                .filter(only_audio=True)
+                .order_by('abr').desc()
+                .first())
+    
 def getTheBestResolution(video):
-    resolutions = [i.resolution for i in video.streams.filter(adaptive=True, file_extension='mp4')]
-    #print(resolutions[0])
-    return resolutions[0]
+    """
+    回傳目前影片可下載的最高解析度（ex. '4320p'、'2160p'、'1440p'…）
+    """
+    best = (video.streams
+                .filter(adaptive=True, only_video=True, file_extension='mp4')
+                .order_by('resolution')       # 由小→大
+       把「抓音訊」的三個地方換         .desc()                        # 反轉成由大→小
+                .first())                      # 取最高
+    return best.resolution if best else None
 
 def sanitize_filename(filename):
     # 1) 替換 Windows 不允許的字元
@@ -228,7 +251,7 @@ def download_video(url_entry, video_resolution, download_option, is_playlist_var
 
                         if download_type == 'video':  # 當前選項為視頻下載
                             video_stream = video.streams.filter(res=getTheBestResolution(video), adaptive=True, file_extension='mp4').first()
-                            audio_stream = video.streams.filter(only_audio=True, file_extension='mp4').first()
+                            audio_stream = get_best_audio_stream(video)
 
                             video_path = video_stream.download(filename='video.mp4')
                             audio_path = audio_stream.download(filename='audio.mp4')
@@ -252,7 +275,7 @@ def download_video(url_entry, video_resolution, download_option, is_playlist_var
                             else:
                                 success_count += 1
                         else:  # 當前選項為音頻下載
-                            audio_stream = video.streams.filter(only_audio=True, file_extension='mp4').first()
+                            audio_stream = get_best_audio_stream(video)
                             audio_path = audio_stream.download(filename='audio.mp4')
                             
                             video_title = sanitize_filename(video.title)  # 獲取影片標題並替換空格
@@ -283,7 +306,7 @@ def download_video(url_entry, video_resolution, download_option, is_playlist_var
                     
                     if download_type == 'video':  # 當前選項為視頻下載
                         video_stream = video.streams.filter(res=resolution_or_bitrate, adaptive=True, file_extension='mp4').first()
-                        audio_stream = video.streams.filter(only_audio=True, file_extension='mp4').first()
+                        audio_stream = get_best_audio_stream(video)
 
                         video_path = video_stream.download(filename='video.mp4')
                         audio_path = audio_stream.download(filename='audio.mp4')
@@ -394,7 +417,7 @@ def download_video(url_entry, video_resolution, download_option, is_playlist_var
                                     showerror(title='FFmpeg Error', message=f'Error processing media: {process.stderr.read()}')
 
                     else:  # 當前選項為音頻下載
-                        audio_stream = video.streams.filter(only_audio=True, file_extension='mp4').first()
+                        audio_stream = get_best_audio_stream(video)
                         audio_path = audio_stream.download(filename='audio.mp4')
                         
                         video_title = sanitize_filename(video.title)  # 獲取影片標題並替換空格
